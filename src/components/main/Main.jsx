@@ -1,50 +1,78 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { assets } from "../../assets/assets";
 import "./main.css";
-import { initial_get_response, session_get_response } from '../../api/axios.bot';
+import { initial_get_response, session_get_response } from "../../api/axios.bot";
 
 const Main = () => {
   const [input, setInput] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [resultData, setResultData] = useState("");
-  const [recentPrompt, setRecentPrompt] = useState("");
+  const [conversations, setConversations] = useState([]);
   const [sessionId, setSessionId] = useState(null);
 
+  const messageEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+	messageEndRef.current?.scrollIntoView(
+		{
+			behavior: 'smooth',
+		}
+	);
+  };
 
   const handleSend = async () => {
     if (!input.trim()) return;
     
     setLoading(true);
     setShowResults(true);
-    setRecentPrompt(input);
+    
+    // Create new message
+    const newMessage = {
+      prompt: input,
+      response: "",
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    // Add to conversations immediately
+    setConversations(prev => [...prev, newMessage]);
 
     try {
-        if (!sessionId) {
-            // Initial response
-            const [response, newSessionId] = await initial_get_response(input);
-            if (response && newSessionId) {
-                setResultData(response);
-                setSessionId(newSessionId);
-                console.log("Session established:", newSessionId); // Debug log
-            } else {
-                throw new Error("Invalid response format from server");
-            }
-        } else {
-            // Session response
-            const response = await session_get_response(input, sessionId);
-            if (response) {
-                setResultData(response);
-            } else {
-                throw new Error("Invalid response format from server");
-            }
-        }
+      if (!sessionId) {
+        const [response, newSessionId] = await initial_get_response(input);
+        setSessionId(newSessionId);
+        
+        // Update the last message with response
+        setConversations(prev => prev.map((msg, index) => {
+          if (index === prev.length - 1) {
+            return { ...msg, response };
+          }
+          return msg;
+        }));
+		scrollToBottom();
+      } else {
+        const response = await session_get_response(input, sessionId);
+        
+        // Update the last message with response
+        setConversations(prev => prev.map((msg, index) => {
+          if (index === prev.length - 1) {
+            return { ...msg, response };
+          }
+          return msg;
+        }));
+		scrollToBottom();
+      }
     } catch (error) {
-        console.error("Error getting response:", error);
-        setResultData("Sorry, there was an error processing your request. Please try again.");
+      console.error("Error getting response:", error);
+      setConversations(prev => prev.map((msg, index) => {
+        if (index === prev.length - 1) {
+          return { ...msg, response: "Sorry, there was an error processing your request. Please try again." };
+        }
+        return msg;
+      }));
     } finally {
-        setLoading(false);
-        setInput("");
+      setLoading(false);
+      setInput("");
+	  scrollToBottom();
     }
   };
 
@@ -98,21 +126,26 @@ const Main = () => {
           </>
         ) : (
           <div className="result">
-            <div className="result-title">
-              <img src={assets.user} alt="" />
-              <p>{recentPrompt}</p>
-            </div>
-            <div className="result-data">
-              {loading ? (
-                <div className="loader">
-                  <hr />
-                  <hr />
-                  <hr />
+            {conversations.map((conv, index) => (
+              <div key={index}>
+                <div className="result-title">
+                  <img src={assets.user} alt="" />
+                  <p>{conv.prompt}</p>
                 </div>
-              ) : (
-                <p dangerouslySetInnerHTML={{ __html: resultData }}></p>
-              )}
-            </div>
+                <div className="result-data">
+                  {loading && index === conversations.length - 1 ? (
+                    <div className="loader">
+                      <hr />
+                      <hr />
+                      <hr />
+                    </div>
+                  ) : (
+                    <p dangerouslySetInnerHTML={{ __html: conv.response }}></p>
+                  )}
+                </div>
+				<div ref={messageEndRef}></div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -123,6 +156,7 @@ const Main = () => {
               value={input}
               type="text"
               placeholder="Enter the Prompt Here"
+              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
             />
             <div>
               <img
